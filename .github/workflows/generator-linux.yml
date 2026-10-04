@@ -45,6 +45,10 @@ jobs:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
+    secrets:
+      GENURL: ${{ secrets.GENURL }}
+      RDGEN_BASIC_USER: ${{ secrets.RDGEN_BASIC_USER }}
+      RDGEN_BASIC_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
 
   generate-bridge-linux:
     uses: ./.github/workflows/bridge.yml
@@ -204,6 +208,10 @@ jobs:
       - name: icon stuff
         if: ${{ env.iconlink_url != 'false' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 5
           max_attempts: 3
@@ -213,7 +221,7 @@ jobs:
             mv ./res/icon.ico ./res/icon.ico.bak
             mv ./res/icon.png ./res/icon.png.bak
             mv ./res/tray-icon.ico ./res/tray-icon.ico.bak
-            wget -O ./res/icon.png ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }}
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$iconlink_file" --data-urlencode "uuid=$iconlink_uuid" --output ./res/icon.png "${RDGEN_URL%/}/get_png"
             mv ./res/32x32.png ./res/32x32.png.bak
             mv ./res/64x64.png ./res/64x64.png.bak
             mv ./res/128x128.png ./res/128x128.png.bak
@@ -402,6 +410,10 @@ jobs:
         name: Build rustdesk
         id: vcpkg
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           arch: ${{ matrix.job.arch }}
           distro: ${{ matrix.job.distro }}
@@ -412,6 +424,8 @@ jobs:
           dockerRunArgs: |
             --volume "${PWD}:/workspace"
             --volume "/opt/artifacts:/opt/artifacts"
+            --env RDGEN_URL --env RDGEN_USER --env RDGEN_PASSWORD
+            --env logolink_file --env logolink_uuid
           shell: /bin/bash
           install: |
             apt-get update -y
@@ -549,7 +563,7 @@ jobs:
             mkdir -p flutter/tmpdeb/usr/share/rustdesk
             cp ./custom_.txt ./flutter/tmpdeb/usr/share/rustdesk/custom_.txt
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
-              wget -O ./flutter/assets/logo.png ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }}
+              curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$logolink_file" --data-urlencode "uuid=$logolink_uuid" --output ./flutter/assets/logo.png "${RDGEN_URL%/}/get_png"
             fi
             if [[ "${{ env.iconlink_url }}" != "false" ]]; then
               mv ./flutter/assets/icon.svg ./flutter/assets/icon.svg.bak
@@ -683,16 +697,20 @@ jobs:
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 15
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./output/${filename}-${{ matrix.job.arch }}.deb" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./output/${filename}-${{ matrix.job.arch }}.rpm" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./output/${filename}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./output/${filename}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client" || true
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -880,6 +898,10 @@ jobs:
       - name: icon stuff
         if: ${{ env.iconlink_url != 'false' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 5
           max_attempts: 3
@@ -889,7 +911,7 @@ jobs:
             mv ./res/icon.ico ./res/icon.ico.bak
             mv ./res/icon.png ./res/icon.png.bak
             mv ./res/tray-icon.ico ./res/tray-icon.ico.bak
-            wget -O ./res/icon.png ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }}
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$iconlink_file" --data-urlencode "uuid=$iconlink_uuid" --output ./res/icon.png "${RDGEN_URL%/}/get_png"
             mv ./res/32x32.png ./res/32x32.png.bak
             mv ./res/64x64.png ./res/64x64.png.bak
             mv ./res/128x128.png ./res/128x128.png.bak
@@ -1076,6 +1098,10 @@ jobs:
         if: env.DRM_SUPPORTED == 'true'
         name: Build rustdesk
         id: vcpkg
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           arch: x86_64
           distro: ubuntu18.04
@@ -1086,6 +1112,8 @@ jobs:
           dockerRunArgs: |
             --volume "${PWD}:/workspace"
             --volume "/opt/artifacts:/opt/artifacts"
+            --env RDGEN_URL --env RDGEN_USER --env RDGEN_PASSWORD
+            --env logolink_file --env logolink_uuid
           shell: /bin/bash
           install: |
             apt-get update -y
@@ -1185,7 +1213,7 @@ jobs:
             mkdir -p flutter/tmpdeb/usr/share/rustdesk
             cp ./custom_.txt ./flutter/tmpdeb/usr/share/rustdesk/custom_.txt
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
-              wget -O ./flutter/assets/logo.png ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }}
+              curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$logolink_file" --data-urlencode "uuid=$logolink_uuid" --output ./flutter/assets/logo.png "${RDGEN_URL%/}/get_png"
             fi
             if [[ "${{ env.iconlink_url }}" != "false" ]]; then
               mv ./flutter/assets/icon.svg ./flutter/assets/icon.svg.bak
@@ -1238,13 +1266,17 @@ jobs:
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' && env.DRM_SUPPORTED == 'true' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 15
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-unattended-wayland-x86_64.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./output/${filename}-unattended-wayland-x86_64.deb" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' && env.DRM_SUPPORTED == 'true' }}
@@ -1315,6 +1347,10 @@ jobs:
       - name: icon stuff
         if: ${{ env.iconlink_url != 'false' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 5
           max_attempts: 3
@@ -1324,7 +1360,7 @@ jobs:
             mv ./res/icon.ico ./res/icon.ico.bak
             mv ./res/icon.png ./res/icon.png.bak
             mv ./res/tray-icon.ico ./res/tray-icon.ico.bak
-            wget -O ./res/icon.png ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }}
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$iconlink_file" --data-urlencode "uuid=$iconlink_uuid" --output ./res/icon.png "${RDGEN_URL%/}/get_png"
             mv ./res/32x32.png ./res/32x32.png.bak
             mv ./res/64x64.png ./res/64x64.png.bak
             mv ./res/128x128.png ./res/128x128.png.bak
@@ -1387,13 +1423,17 @@ jobs:
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 15
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./appimage/${{ env.filename }}-${{ matrix.job.arch }}.AppImage" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./appimage/${filename}-${{ matrix.job.arch }}.AppImage" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
           
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -1526,13 +1566,17 @@ jobs:
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 10
           max_attempts: 3
           retry_wait_seconds: 15
           shell: bash
           command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./flatpak/${{ env.filename }}-${{ matrix.job.arch }}.flatpak" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+            curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./flatpak/${filename}-${{ matrix.job.arch }}.flatpak" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
           
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -1568,6 +1612,8 @@ jobs:
         uses: fjogeleit/http-request-action@v1
         with:
           url: "${{ secrets.GENURL }}/cleanzip"
+          username: ${{ secrets.RDGEN_BASIC_USER }}
+          password: ${{ secrets.RDGEN_BASIC_PASSWORD }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'

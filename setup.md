@@ -32,6 +32,26 @@
   * REPONAME="rdgen" *optional - defaults to "rdgen", change this if you renamed the repo when you forked it
 5. Now just run ```docker compose up -d```
 
+## Workflow Basic Authentication
+
+The generator workflows require these repository secrets in Settings > Secrets and variables > Actions:
+
+* `GENURL`: the public HTTPS URL of your RDGen proxy, such as `https://rdgen.example.com`, without a trailing slash.
+* `RDGEN_BASIC_USER`: a dedicated machine account configured in the reverse proxy.
+* `RDGEN_BASIC_PASSWORD`: that account's unique, randomly generated password.
+
+Require this account on the exact paths `/save_custom_client`, `/get_png`, `/get_zip`, and `/cleanzip`.
+Keep the `/` prefix protected by a separate browser user list, and block direct public access to backend TCP/8000.
+Configure `/updategh` with machine authentication too, but the current repository only sets `STATUS_URL`; it does not contain a status-update sender to modify.
+Any external status sender must supply Basic Auth independently.
+
+The ZIP downloader uses `GENURL` rather than the URL supplied in workflow inputs, and refuses non-HTTPS URLs and redirects.
+Asset downloads use the same trusted proxy URL, with TLS certificate verification enabled.
+Reusable ZIP-download callers explicitly forward the three secrets above; other reusable build workflows inherit secrets.
+Separate API-server uploads retain their existing Bearer authentication.
+
+Verify that every protected path rejects missing or incorrect credentials with HTTP 401, then test authenticated builds on each selected platform.
+These workflow changes do not add Django authentication or fix its cleanup and CSRF issues; the reverse proxy must enforce access control.
 
 ## Use a self hosted github runner for faster client generation (Windows only right now)
 
@@ -74,9 +94,9 @@
         * PROTOCOL="https" *optional - defaults to "https", change to "http" if you need to
         * REPONAME="rdgen" *optional - defaults to "rdgen", change this if you renamed the repo when you forked it
     * github secrets (setup on your github account for your rdgen repo):  
-        * GENURL="example.com:8000"  *this is the domain and port that you are
-          running rdgen on, needs to be accessible on the internet, depending
-          on how you have this setup the port may not be needed  
+        * GENURL="https://rdgen.example.com" - the public HTTPS reverse-proxy URL, without a trailing slash
+        * RDGEN_BASIC_USER="rdgen-runner" - the proxy's dedicated machine account
+        * RDGEN_BASIC_PASSWORD="your machine account password" - configure the same password in the proxy
 
 ```
 # Open to the directory you want to install rdgen (change /opt to wherever you want)  

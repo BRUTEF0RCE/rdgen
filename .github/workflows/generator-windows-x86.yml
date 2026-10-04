@@ -50,6 +50,10 @@ jobs:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
     with:
       zip_url_json: ${{ inputs.zip_url }}
+    secrets:
+      GENURL: ${{ secrets.GENURL }}
+      RDGEN_BASIC_USER: ${{ secrets.RDGEN_BASIC_USER }}
+      RDGEN_BASIC_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
 
   build-for-windows-sciter:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
@@ -89,6 +93,8 @@ jobs:
         uses: fjogeleit/http-request-action@v1
         with:
           url: "${{ secrets.GENURL }}/cleanzip"
+          username: ${{ secrets.RDGEN_BASIC_USER }}
+          password: ${{ secrets.RDGEN_BASIC_PASSWORD }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
@@ -327,13 +333,18 @@ jobs:
       - name: magick stuff
         if: ${{ env.iconlink_url != 'false' }}
         uses: nick-fields/retry@v3
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         with:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 15
           shell: pwsh
           command: |
-            Invoke-WebRequest -Uri ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }} -OutFile ./res/icon.png 
+            $credential = [pscredential]::new($env:RDGEN_USER, (ConvertTo-SecureString $env:RDGEN_PASSWORD -AsPlainText -Force))
+            Invoke-WebRequest -Authentication Basic -Credential $credential -MaximumRedirection 0 -Uri "$($env:RDGEN_URL.TrimEnd('/'))/get_png?filename=$([uri]::EscapeDataString($env:iconlink_file))&uuid=$([uri]::EscapeDataString($env:iconlink_uuid))" -OutFile ./res/icon.png
             mv ./res/32x32.png ./res/32x32.png.bak
             mv ./res/64x64.png ./res/64x64.png.bak
             mv ./res/128x128.png ./res/128x128.png.bak
@@ -536,8 +547,12 @@ jobs:
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
         shell: bash
+        env:
+          RDGEN_URL: ${{ secrets.GENURL }}
+          RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
+          RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" -F "file=@./SignOutput/${filename}.exe" -F "uuid=$uuid" "${RDGEN_URL%/}/save_custom_client"
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
