@@ -21,3 +21,44 @@ Save your configuration from the rdgen web interface, or generate your own, then
 - Avoid special characters or non-English characters in app name and file name
 - Build time is currently 30 - 45 minutes
 
+
+
+## How to manage
+Suppose the original project is:
+
+text
+https://github.com/bryangerlach/rdgen.git
+And your fork is:
+
+text
+https://github.com/BRUTEF0RCE/rdgen.git
+Your initial setup:
+
+bash
+cd /data/
+git clone https://github.com/BRUTEF0RCE/rdgen.git
+cd rdgen
+git remote add upstream https://github.com/bryangerlach/rdgen.git
+git fetch upstream
+
+git switch -c rdgen-runner-customizations
+git push -u origin rdgen-runner-customizations
+Later, when bryangerlach releases changes:
+
+bash
+git fetch upstream
+
+git switch master
+git merge --ff-only upstream/master
+git push origin master
+
+git switch rdgen-runner-customizations
+git rebase master
+git push --force-with-lease origin rdgen-runner-customizations
+Your custom branch then contains:
+
+text
+upstream project history
+        +
+your custom commits, replayed on top
+That is the maintainable way to continuously consume source-repository updates while preserving your fork-specific changes.
