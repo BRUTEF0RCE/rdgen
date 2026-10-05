@@ -53,6 +53,23 @@ Separate API-server uploads retain their existing Bearer authentication.
 Verify that every protected path rejects missing or incorrect credentials with HTTP 401, then test authenticated builds on each selected platform.
 These workflow changes do not add Django authentication or fix its cleanup and CSRF issues; the reverse proxy must enforce access control.
 
+### ZIP download returns HTTP 401 or 403
+
+The downloader already sends `RDGEN_BASIC_USER` and `RDGEN_BASIC_PASSWORD` as Basic Auth.
+Retrying does not resolve an authentication or access-policy denial.
+
+1. Check that `GENURL` points to the intended RDGen proxy and that both Basic Auth repository secrets match its dedicated machine account.
+2. Check the proxy's exact `/get_zip` route: it must allow the machine account, not only the browser user list. Inspect proxy/WAF access logs for the failed request, including any IP allowlist or interactive-login policy that rejects GitHub-hosted runners.
+3. Test the same URL and filename from a trusted terminal, supplying the machine username below. Curl prompts for the password; do not put it in the command or share credentials or downloaded ZIP contents:
+
+  ```sh
+  curl --user 'rdgen-runner' --output /dev/null --write-out 'HTTP %{http_code}\n' 'https://rdgen.example.com/get_zip?filename=secrets_YOUR_UUID.zip'
+  ```
+
+4. An authenticated request for an existing ZIP should return HTTP 200 without a redirect. If it succeeds locally but fails in Actions, inspect runner-specific proxy/WAF restrictions. Correct the policy while keeping Basic Auth, TLS verification, and backend isolation enabled, then rerun the failed job.
+
+In this repository, Django's `/get_zip` returns HTTP 403 only when the filename resolves outside `temp_zips`; a plain `secrets_<uuid>.zip` filename passes that check. A missing ZIP is a separate failure, not an authorization denial.
+
 ## Use a self hosted github runner for faster client generation (Windows only right now)
 
 1. First you need to set up a Windows computer that can build rustdesk
