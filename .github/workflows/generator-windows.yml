@@ -92,7 +92,11 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        
+
+      - name: Preserve aom NASM compatibility helper
+        shell: bash
+        run: cp .github/patches/fix_aom_nasm.py "$RUNNER_TEMP/fix_aom_nasm.py"
+
       - uses: actions/download-artifact@v4
         with:
           name: encrypted-secrets-zip
@@ -420,6 +424,10 @@ jobs:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
+
+      - name: Fix aom NASM 3 compatibility
+        shell: bash
+        run: python "$RUNNER_TEMP/fix_aom_nasm.py"
 
       - name: Install vcpkg dependencies
         env:
