@@ -34,7 +34,7 @@ text
 https://github.com/BRUTEF0RCE/rdgen.git
 Your initial setup:
 
-bash
+``` bash
 cd /data/
 git clone https://github.com/BRUTEF0RCE/rdgen.git
 cd rdgen
@@ -43,12 +43,11 @@ git fetch upstream
 
 git switch -c rdgen-runner-customizations
 git push -u origin rdgen-runner-customizations
-
-
+```
 
 Later, when bryangerlach releases changes:
 
-bash
+``` bash
 git fetch upstream
 
 git switch master
@@ -58,6 +57,8 @@ git push origin master
 git switch rdgen-runner-customizations
 git rebase master
 git push --force-with-lease origin rdgen-runner-customizations
+```
+
 Your custom branch then contains:
 
 text
