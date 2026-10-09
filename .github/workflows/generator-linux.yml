@@ -483,6 +483,9 @@ jobs:
             ls -l ./
             tree -L 3 /opt/artifacts/vcpkg/installed
           run: |
+            export LANG=C.UTF-8
+            export LC_ALL=C.UTF-8
+            export PYTHONIOENCODING=utf-8
             # disable git safe.directory
             git config --global --add safe.directory "*"
             # rust
@@ -648,7 +651,7 @@ jobs:
             from pathlib import Path
 
             path = Path("build.py")
-            source = path.read_text()
+            source = path.read_text(encoding="utf-8")
             command = "flutter build linux --release"
             if "${{ matrix.job.arch }}" == "aarch64":
                 command = "flutter-elinux build linux --release --verbose"
@@ -665,7 +668,7 @@ jobs:
                 "        raise SystemExit('ERROR: Flutter bundle is missing the rustdesk executable')",
                 "    system2('mkdir -p tmpdeb/usr/bin/')",
             ])
-            path.write_text(source.replace(anchor, guarded))
+            path.write_text(source.replace(anchor, guarded), encoding="utf-8")
             PY
             python3 ./build.py --flutter --skip-cargo || {
               echo "build.py failed. Flutter build contents:"
