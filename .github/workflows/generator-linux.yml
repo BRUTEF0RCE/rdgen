@@ -576,8 +576,8 @@ jobs:
             chmod 777 output -R
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=${{ matrix.job.deb_arch }}
-            mkdir -p flutter/tmpdeb/usr/share/rustdesk
-            cp ./custom_.txt ./flutter/tmpdeb/usr/share/rustdesk/custom_.txt
+            mkdir -p "flutter/tmpdeb/usr/share/${{ env.appname }}"
+            cp ./custom_.txt "./flutter/tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
               curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$logolink_file" --data-urlencode "uuid=$logolink_uuid" --output ./flutter/assets/logo.png "${RDGEN_URL%/}/get_png"
             fi
@@ -599,7 +599,7 @@ jobs:
             if [ "${{ env.appname }}" != "rustdesk" ]; then
                 # Change files names in the output .deb
                 sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service|g" build.py
-                sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
+                sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
                 sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
                 # The rename above is greedy in \1, so it rewrites only the LAST
                 # "rustdesk" of each path and leaves build.py's globs pointing where the
@@ -1157,6 +1157,7 @@ jobs:
                gcc \
                git \
                g++ \
+               imagemagick \
                libayatana-appindicator3-dev \
                libasound2-dev \
                libclang-10-dev \
@@ -1181,6 +1182,7 @@ jobs:
                wget \
                xz-utils \
                libssl-dev
+            command -v convert
             # we have libopus compiled by us.
             apt-get remove -y libopus-dev || true
             # output devs
@@ -1241,8 +1243,8 @@ jobs:
             chmod 777 output -R
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=amd64
-            mkdir -p flutter/tmpdeb/usr/share/rustdesk
-            cp ./custom_.txt ./flutter/tmpdeb/usr/share/rustdesk/custom_.txt
+            mkdir -p "flutter/tmpdeb/usr/share/${{ env.appname }}"
+            cp ./custom_.txt "./flutter/tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
               curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$logolink_file" --data-urlencode "uuid=$logolink_uuid" --output ./flutter/assets/logo.png "${RDGEN_URL%/}/get_png"
             fi
@@ -1259,7 +1261,7 @@ jobs:
 
             if [ "${{ env.appname }}" != "rustdesk" ]; then
                 sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service|g" build.py
-              sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
+              sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
                 sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
                 # The rename above is greedy in \1, so it rewrites only the LAST
                 # "rustdesk" of each path and leaves build.py's globs pointing where the
