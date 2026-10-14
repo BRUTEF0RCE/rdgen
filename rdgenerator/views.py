@@ -342,9 +342,10 @@ def generate_custom_client(params, full_url):
                 "log_url": github_data.get('html_url')
             }
         else:
+            print(f"GitHub dispatch failed: {response.status_code} {response.text}")
             return {
                 "success": False,
-                "error": "GitHub rejected the start request",
+                "error": f"GitHub rejected the start request ({response.status_code}): {response.text[:300]}",
                 "status_code": 500
             }
     except Exception as e:
