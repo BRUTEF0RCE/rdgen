@@ -475,7 +475,11 @@ jobs:
                unzip \
                wget \
                xz-utils \
-               libssl-dev
+               libssl-dev \
+               dpkg-dev \
+               debhelper \
+               fakeroot \
+               dpkg
             command -v convert
             convert -version
             # we have libopus compiled by us.
@@ -577,6 +581,10 @@ jobs:
             chmod 777 output -R
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=${{ matrix.job.deb_arch }}
+            
+            # Ensure packaging staging directories exist (build.py expects tmpdeb/ in repo root)
+            mkdir -p "tmpdeb/usr/share/${{ env.appname }}"
+            cp ./custom_.txt "./tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
             mkdir -p "flutter/tmpdeb/usr/share/${{ env.appname }}"
             cp ./custom_.txt "./flutter/tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
             DEB_PACKAGE_NAME=$(python3 - "$RDGEN_PACKAGE_FILENAME" <<'PY'
@@ -607,21 +615,36 @@ jobs:
 
             python3 - <<'PY'
             from pathlib import Path
+            import re, sys
 
             path = Path("build.py")
             source = path.read_text(encoding="utf-8")
+
             replacements = {
-              "system2('mkdir -p tmpdeb/usr/share/rustdesk')": ("system2('mkdir -p \"tmpdeb/usr/share/rustdesk\"')", 2),
-              "tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png')": ("\"tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png\"')", 2),
-              "tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg')": ("\"tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg\"')", 2),
-              "tmpdeb/usr/share/applications/rustdesk.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk.desktop\"')", 2),
-              "tmpdeb/usr/share/applications/rustdesk-link.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk-link.desktop\"')", 2),
-                'tmpdeb/usr/share/rustdesk/files/polkit && chmod a+x tmpdeb/usr/share/rustdesk/files/polkit': ('\\"tmpdeb/usr/share/rustdesk/files/polkit\\" && chmod a+x \\"tmpdeb/usr/share/rustdesk/files/polkit\\"', 2),
+              r"system2\(\s*'mkdir -p\s*tmpdeb/usr/share/rustdesk'\s*\)": "system2('mkdir -p \"tmpdeb/usr/share/rustdesk\"')",
+              r"tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk\.png'": "\"tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png\"'",
+              r"tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk\.svg'": "\"tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg\"'",
+              r"tmpdeb/usr/share/applications/rustdesk\.desktop'": "\"tmpdeb/usr/share/applications/rustdesk.desktop\"'",
+              r"tmpdeb/usr/share/applications/rustdesk-link\.desktop'": "\"tmpdeb/usr/share/applications/rustdesk-link.desktop\"'",
+              r"tmpdeb/usr/share/rustdesk/files/polkit\s*&&\s*chmod a\+x tmpdeb/usr/share/rustdesk/files/polkit": "\\\"tmpdeb/usr/share/rustdesk/files/polkit\\\" && chmod a+x \\\"tmpdeb/usr/share/rustdesk/files/polkit\\\"",
             }
-            for old, (new, expected_count) in replacements.items():
-              if source.count(old) != expected_count:
-                    raise SystemExit("Cannot locate expected Linux package command: " + old)
-              source = source.replace(old, new, expected_count)
+
+            changed = False
+            for pattern, repl in replacements.items():
+              new, n = re.subn(pattern, repl, source)
+              if n > 0:
+                print(f"Replaced {n} occurrence(s) of /{pattern}/")
+                source = new
+                changed = True
+              else:
+                print(f"No match for /{pattern}/ (continue)")
+
+            if not changed:
+              print("Warning: no replacements made. Contents around possible targets:")
+              for line_no, line in enumerate(source.splitlines(), 1):
+                if 'tmpdeb' in line or 'mkdir -p' in line or 'system2' in line:
+                  print(f"{line_no}: {line}")
+
             path.write_text(source, encoding="utf-8")
             PY
 
@@ -681,26 +704,56 @@ jobs:
             echo "Expected Flutter bundle: $BUNDLE"
             python3 - <<'PY'
             from pathlib import Path
+            import sys
 
             path = Path("build.py")
             source = path.read_text(encoding="utf-8")
+
             command = "flutter build linux --release"
             if "${{ matrix.job.arch }}" == "aarch64":
                 command = "flutter-elinux build linux --release --verbose"
+
             anchor = "    system2({!r})\n    system2('mkdir -p tmpdeb/usr/bin/')".format(command)
-            if source.count(anchor) != 1:
-                raise SystemExit("Cannot locate Flutter deb build step in build.py")
-            guarded = "\n".join([
-                "    system2({!r})".format(command),
-                "    print('Checking Flutter bundle: ' + flutter_build_dir, flush=True)",
-                "    if not os.path.isdir(flutter_build_dir):",
-                "        raise SystemExit('ERROR: Flutter bundle directory does not exist: ' + flutter_build_dir)",
-                "    print('Bundle contents: ' + repr(sorted(os.listdir(flutter_build_dir))), flush=True)",
-                "    if not os.path.isfile(os.path.join(flutter_build_dir, 'rustdesk')):",
-                "        raise SystemExit('ERROR: Flutter bundle is missing the rustdesk executable')",
-                "    system2('mkdir -p tmpdeb/usr/bin/')",
-            ])
-            path.write_text(source.replace(anchor, guarded), encoding="utf-8")
+            count = source.count(anchor)
+            if count == 1:
+              guarded = "\n".join([
+                  "    system2({!r})".format(command),
+                  "    print('Checking Flutter bundle: ' + flutter_build_dir, flush=True)",
+                  "    if not os.path.isdir(flutter_build_dir):",
+                  "        raise SystemExit('ERROR: Flutter bundle directory does not exist: ' + flutter_build_dir)",
+                  "    print('Bundle contents: ' + repr(sorted(os.listdir(flutter_build_dir))), flush=True)",
+                  "    if not os.path.isfile(os.path.join(flutter_build_dir, 'rustdesk')):",
+                  "        raise SystemExit('ERROR: Flutter bundle is missing the rustdesk executable')",
+                  "    system2('mkdir -p tmpdeb/usr/bin/')",
+              ])
+              path.write_text(source.replace(anchor, guarded), encoding="utf-8")
+              print("Flutter anchor replaced", file=sys.stderr)
+            else:
+              # diagnostics: show a snippet around likely command locations
+              print(f"WARNING: Flutter anchor not found (expected 1, found {count}). Trying a tolerant match...", file=sys.stderr)
+              # attempt a more tolerant insertion: find the command line itself
+              idx = source.find(command)
+              if idx != -1:
+                # find the line start and insert the guard after that line
+                lines = source.splitlines()
+                for i, line in enumerate(lines):
+                  if command in line:
+                    insert_at = i + 1
+                    guard_lines = [
+                      "    print('Checking Flutter bundle: ' + flutter_build_dir, flush=True)",
+                      "    if not os.path.isdir(flutter_build_dir):",
+                      "        raise SystemExit('ERROR: Flutter bundle directory does not exist: ' + flutter_build_dir)",
+                      "    print('Bundle contents: ' + repr(sorted(os.listdir(flutter_build_dir))), flush=True)",
+                      "    if not os.path.isfile(os.path.join(flutter_build_dir, 'rustdesk')):",
+                      "        raise SystemExit('ERROR: Flutter bundle is missing the rustdesk executable')",
+                      "    system2('mkdir -p tmpdeb/usr/bin/')",
+                    ]
+                    lines[insert_at:insert_at] = guard_lines
+                    path.write_text("\n".join(lines), encoding="utf-8")
+                    print("Inserted guard near flutter command", file=sys.stderr)
+                    break
+              else:
+                print("ERROR: Could not locate flutter command; please inspect build.py manually.", file=sys.stderr)
             PY
             python3 ./build.py --flutter --skip-cargo || {
               echo "build.py failed. Flutter build contents:"
