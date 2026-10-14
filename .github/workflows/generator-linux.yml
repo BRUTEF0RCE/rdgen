@@ -680,7 +680,12 @@ jobs:
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
                   sed -ie "s|rustdesk|${{ env.appname }}|g" $FILE
                 done
-                sed -ie "s|^Package: .*|Package: ${DEB_PACKAGE_NAME}|" res/DEBIAN/control
+                # Upstream build.py generates res/DEBIAN/control at build time (its
+                # "Package: rustdesk" is rewritten by the build.py sed above), so the
+                # file only exists here on older tags that still ship it.
+                if [ -f res/DEBIAN/control ]; then
+                  sed -ie "s|^Package: .*|Package: ${DEB_PACKAGE_NAME}|" res/DEBIAN/control
+                fi
                 for file in "./res/rpm-flutter.spec" "./res/rpm-flutter-suse.spec"; do
                   sed -ie "s|^\(URL:\s*\).*|\1${{ env.downloadLink }}|g" "$file"
                   sed -ie "s|^\(Vendor:\s*\).*|\1${{ env.compname }}|g" "$file"
@@ -1358,10 +1363,12 @@ jobs:
                 "tmpdeb/usr/share/applications/rustdesk-link.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk-link.desktop\"')", 2),
                 'tmpdeb/usr/share/rustdesk/files/polkit && chmod a+x tmpdeb/usr/share/rustdesk/files/polkit': ('\\"tmpdeb/usr/share/rustdesk/files/polkit\\" && chmod a+x \\"tmpdeb/usr/share/rustdesk/files/polkit\\"', 2),
             }
-            for old, (new, expected_count) in replacements.items():
-                if source.count(old) != expected_count:
+            for old, (new, _) in replacements.items():
+                # Upstream's occurrence count drifts between tags (2 vs 3), so only require a match.
+                count = source.count(old)
+                if count < 1:
                     raise SystemExit("Cannot locate expected Linux package command: " + old)
-                source = source.replace(old, new, expected_count)
+                source = source.replace(old, new)
             path.write_text(source, encoding="utf-8")
             PY
 
