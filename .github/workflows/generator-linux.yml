@@ -122,17 +122,6 @@ jobs:
             sudo apt-get install -y qemu-user-static
           fi
       
-      - name: Install Clang 15 and LLVM 15
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y clang-15 lld-15 llvm-15-dev
-          # Ensure clang-15 is default clang on PATH
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-15 100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 100
-          clang --version
-          clang++ --version
-          nasm -v
-      
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -210,11 +199,6 @@ jobs:
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
         run: |
           sudo apt install -y libva-dev && apt show libva-dev
-          # Use Clang 15 for vcpkg builds
-          export CC=/usr/bin/clang-15
-          export CXX=/usr/bin/clang++-15
-          export CMAKE_C_COMPILER=$CC
-          export CMAKE_CXX_COMPILER=$CXX
           if ! $VCPKG_ROOT/vcpkg \
             install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
@@ -460,7 +444,7 @@ jobs:
             echo -e "installing deps"
             apt-get install -y \
                build-essential \
-               clang-15 \
+               clang \
                cmake \
                curl \
                gcc \
@@ -469,7 +453,7 @@ jobs:
                imagemagick \
                libayatana-appindicator3-dev \
                libasound2-dev \
-               libclang-15-dev \
+               libclang-10-dev \
                libgstreamer1.0-dev \
                libgstreamer-plugins-base1.0-dev \
                libgtk-3-dev \
@@ -481,8 +465,7 @@ jobs:
                libxcb-xfixes0-dev \
                libxdo-dev \
                libxfixes-dev \
-               llvm-15-dev \
-               lld-15 \
+               llvm-10-dev \
                nasm \
                ninja-build \
                pkg-config \
@@ -508,14 +491,6 @@ jobs:
             export LANG=C.UTF-8
             export LC_ALL=C.UTF-8
             export PYTHONIOENCODING=utf-8
-            # Use Clang 15 for all CMake/vcpkg operations
-            export CC=/usr/bin/clang-15
-            export CXX=/usr/bin/clang++-15
-            export CMAKE_C_COMPILER=$CC
-            export CMAKE_CXX_COMPILER=$CXX
-            # Verify compiler versions
-            clang --version
-            clang++ --version
             # disable git safe.directory
             git config --global --add safe.directory "*"
             # rust
@@ -675,42 +650,6 @@ jobs:
 
             # Only run the whitelabeling steps if the custom app name is actually different
             if [ "${{ env.appname }}" != "rustdesk" ]; then
-                # Ensure DEBIAN control exists before any sed operations
-                # This prevents sed from failing on missing res/DEBIAN/control
-                if [ ! -f res/DEBIAN/control ]; then
-                  echo "res/DEBIAN/control missing — attempting to recover or create a minimal control file"
-                  mkdir -p res/DEBIAN
-
-                  # Preferred source: tmpdeb staging tree produced by build.py
-                  if [ -f tmpdeb/DEBIAN/control ]; then
-                    cp tmpdeb/DEBIAN/control res/DEBIAN/control
-                    echo "Copied tmpdeb/DEBIAN/control -> res/DEBIAN/control"
-                  elif [ -f flutter/tmpdeb/DEBIAN/control ]; then
-                    cp flutter/tmpdeb/DEBIAN/control res/DEBIAN/control
-                    echo "Copied flutter/tmpdeb/DEBIAN/control -> res/DEBIAN/control"
-                  else
-                    # Fallback: create minimal control file (sufficient for sed Package replacement)
-                    cat > res/DEBIAN/control <<'CONTROL'
-Package: rustdesk
-Version: 0.0.0
-Section: utils
-Priority: optional
-Architecture: all
-Maintainer: Purslane Ltd
-Description: RustDesk Remote Desktop
-CONTROL
-                    echo "Created minimal res/DEBIAN/control"
-                  fi
-                fi
-
-                # Diagnostic output to help identify where control files actually live
-                echo "Diagnostic: Listing staging tree contents for debugging..."
-                ls -la tmpdeb 2>/dev/null || echo "  tmpdeb/ not found"
-                ls -la flutter/tmpdeb 2>/dev/null || echo "  flutter/tmpdeb/ not found"
-                ls -la res/DEBIAN 2>/dev/null || echo "  res/DEBIAN/ not found"
-                echo "  Looking for all 'control' files..."
-                find . -maxdepth 3 -type f -name control -print 2>/dev/null || true
-
                 # Change files names in the output .deb
                 sed -i -e "s|cp ../res/rustdesk\.service tmpdeb/usr/share/rustdesk/files/systemd/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}/files/systemd/\" \&\& cp ../res/rustdesk.service \"tmpdeb/usr/share/${{ env.appname }}/files/systemd/${{ env.appname }}.service\"|g" build.py
                 sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
@@ -737,34 +676,24 @@ CONTROL
                 sed -ie "s|Package: rustdesk|Package: ${DEB_PACKAGE_NAME}|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+\"\?tmpdeb/.*~\2~p" build.py | sort | uniq)
-                # Make ls defensive: only add DEBIAN files if the directory exists
-                if [ -d "res/DEBIAN" ]; then
-                  FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/* 2>/dev/null || true)")
-                fi
+                FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
-                  [ -f "$FILE" ] && sed -ie "s|rustdesk|${{ env.appname }}|g" "$FILE"
+                  sed -ie "s|rustdesk|${{ env.appname }}|g" $FILE
                 done
-                
-                # Now the existing sed commands can run safely; only run if the file exists
-                if [ -f "res/DEBIAN/control" ]; then
-                  sed -ie "s|^Package: .*|Package: ${DEB_PACKAGE_NAME}|" res/DEBIAN/control
-                else
-                  echo "Warning: res/DEBIAN/control missing — skipping package rename (file will be in tmpdeb/DEBIAN)"
-                fi
+                sed -ie "s|^Package: .*|Package: ${DEB_PACKAGE_NAME}|" res/DEBIAN/control
                 for file in "./res/rpm-flutter.spec" "./res/rpm-flutter-suse.spec"; do
-                  [ ! -f "$file" ] && echo "Skipping $file (not found)" && continue
-                  sed -ie "s|^\(URL:\s*\).*|\1${{ env.downloadLink }}|g" "$file" || true
-                  sed -ie "s|^\(Vendor:\s*\).*|\1${{ env.compname }}|g" "$file" || true
-                  sed -ie '/\${\?HBB}\?/!{/\/usr\|\/etc\|systemctl/s|rustdesk|${{ env.appname }}|g}' "$file" || true
-                  sed -ie "s|^Name:[[:space:]]*rustdesk$|Name: ${DEB_PACKAGE_NAME}|" "$file" || true
-                  sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1${{ env.appname }}|g}' "$file" || true
-                  sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|${{ env.appname }}|g}' "$file" || true
+                  sed -ie "s|^\(URL:\s*\).*|\1${{ env.downloadLink }}|g" "$file"
+                  sed -ie "s|^\(Vendor:\s*\).*|\1${{ env.compname }}|g" "$file"
+                  sed -ie '/\${\?HBB}\?/!{/\/usr\|\/etc\|systemctl/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie "s|^Name:[[:space:]]*rustdesk$|Name: ${DEB_PACKAGE_NAME}|" "$file"
+                  sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1${{ env.appname }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|${{ env.appname }}|g}' "$file"
                   for extension in ".desktop" "-link.desktop" ".service"; do
-                    sed -ie "/^%files$/i\mv %{buildroot}/usr/share/${{ env.appname }}/files/rustdesk$extension %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file" || true
-                    sed -ie "/^%files$/i\sed -ie 's|RustDesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file" || true
-                    sed -ie "/^%files$/i\sed -ie 's|rustdesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file" || true
+                    sed -ie "/^%files$/i\mv %{buildroot}/usr/share/${{ env.appname }}/files/rustdesk$extension %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file"
+                    sed -ie "/^%files$/i\sed -ie 's|RustDesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file"
+                    sed -ie "/^%files$/i\sed -ie 's|rustdesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file"
                   done
-                  sed -ie '/^%files$/i\\n' "$file" || true
+                  sed -ie '/^%files$/i\\n' "$file"
                 done
             fi
 
