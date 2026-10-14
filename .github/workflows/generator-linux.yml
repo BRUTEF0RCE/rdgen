@@ -424,6 +424,7 @@ jobs:
           RDGEN_URL: ${{ secrets.GENURL }}
           RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
           RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
+          RDGEN_PACKAGE_FILENAME: ${{ env.filename }}
         with:
           arch: ${{ matrix.job.arch }}
           distro: ${{ matrix.job.distro }}
@@ -434,7 +435,7 @@ jobs:
           dockerRunArgs: |
             --volume "${PWD}:/workspace"
             --volume "/opt/artifacts:/opt/artifacts"
-            --env RDGEN_URL --env RDGEN_USER --env RDGEN_PASSWORD
+            --env RDGEN_URL --env RDGEN_USER --env RDGEN_PASSWORD --env RDGEN_PACKAGE_FILENAME
             --env logolink_file --env logolink_uuid
           shell: /bin/bash
           install: |
@@ -578,6 +579,15 @@ jobs:
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             mkdir -p "flutter/tmpdeb/usr/share/${{ env.appname }}"
             cp ./custom_.txt "./flutter/tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
+            DEB_PACKAGE_NAME=$(python3 - "$RDGEN_PACKAGE_FILENAME" <<'PY'
+            import re
+            import sys
+
+            package_name = re.sub(r"[^a-z0-9+.-]+", "-", sys.argv[1].lower())
+            package_name = re.sub(r"^[^a-z0-9]+", "", package_name)[:128].rstrip(".+-")
+            print(package_name or "rustdesk")
+            PY
+            )
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
               curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$logolink_file" --data-urlencode "uuid=$logolink_uuid" --output ./flutter/assets/logo.png "${RDGEN_URL%/}/get_png"
             fi
@@ -594,6 +604,26 @@ jobs:
               dart run flutter_launcher_icons
               popd
             fi
+
+            python3 - <<'PY'
+            from pathlib import Path
+
+            path = Path("build.py")
+            source = path.read_text(encoding="utf-8")
+            replacements = {
+              "system2('mkdir -p tmpdeb/usr/share/rustdesk')": ("system2('mkdir -p \"tmpdeb/usr/share/rustdesk\"')", 2),
+              "tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png')": ("\"tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png\"')", 2),
+              "tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg')": ("\"tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg\"')", 2),
+              "tmpdeb/usr/share/applications/rustdesk.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk.desktop\"')", 2),
+              "tmpdeb/usr/share/applications/rustdesk-link.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk-link.desktop\"')", 2),
+                'tmpdeb/usr/share/rustdesk/files/polkit && chmod a+x tmpdeb/usr/share/rustdesk/files/polkit': ('\\"tmpdeb/usr/share/rustdesk/files/polkit\\" && chmod a+x \\"tmpdeb/usr/share/rustdesk/files/polkit\\"', 2),
+            }
+            for old, (new, expected_count) in replacements.items():
+              if source.count(old) != expected_count:
+                    raise SystemExit("Cannot locate expected Linux package command: " + old)
+              source = source.replace(old, new, expected_count)
+            path.write_text(source, encoding="utf-8")
+            PY
 
             # Only run the whitelabeling steps if the custom app name is actually different
             if [ "${{ env.appname }}" != "rustdesk" ]; then
@@ -620,17 +650,19 @@ jobs:
                 #    rewritten by nothing here. Staging it under /usr/lib/<appname>/
                 #    packages and installs cleanly, then never loads on the user's machine.
                 sed -ie "s|tmpdeb/usr/lib/${{ env.appname }}|tmpdeb/usr/lib/rustdesk|g" build.py
-                sed -ie "s|Package: rustdesk|Package: ${{ env.appname }}|g" build.py
+                sed -ie "s|Package: rustdesk|Package: ${DEB_PACKAGE_NAME}|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+\"\?tmpdeb/.*~\2~p" build.py | sort | uniq)
                 FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
                   sed -ie "s|rustdesk|${{ env.appname }}|g" $FILE
                 done
+                sed -ie "s|^Package: .*|Package: ${DEB_PACKAGE_NAME}|" res/DEBIAN/control
                 for file in "./res/rpm-flutter.spec" "./res/rpm-flutter-suse.spec"; do
                   sed -ie "s|^\(URL:\s*\).*|\1${{ env.downloadLink }}|g" "$file"
                   sed -ie "s|^\(Vendor:\s*\).*|\1${{ env.compname }}|g" "$file"
-                  sed -ie '/\${\?HBB}\?/!{/\(^Name:\|\/usr\|\/etc\|systemctl\)/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/!{/\/usr\|\/etc\|systemctl/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie "s|^Name:[[:space:]]*rustdesk$|Name: ${DEB_PACKAGE_NAME}|" "$file"
                   sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1${{ env.appname }}|g}' "$file"
                   sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|${{ env.appname }}|g}' "$file"
                   for extension in ".desktop" "-link.desktop" ".service"; do
@@ -750,6 +782,7 @@ jobs:
           RDGEN_URL: ${{ secrets.GENURL }}
           RDGEN_USER: ${{ secrets.RDGEN_BASIC_USER }}
           RDGEN_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
+          RDGEN_PACKAGE_FILENAME: ${{ env.filename }}
         with:
           timeout_minutes: 10
           max_attempts: 3
@@ -1259,8 +1292,28 @@ jobs:
               popd
             fi
 
+            python3 - <<'PY'
+            from pathlib import Path
+
+            path = Path("build.py")
+            source = path.read_text(encoding="utf-8")
+            replacements = {
+                "system2('mkdir -p tmpdeb/usr/share/rustdesk')": ("system2('mkdir -p \"tmpdeb/usr/share/rustdesk\"')", 2),
+                "tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png')": ("\"tmpdeb/usr/share/icons/hicolor/256x256/apps/rustdesk.png\"')", 2),
+                "tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg')": ("\"tmpdeb/usr/share/icons/hicolor/scalable/apps/rustdesk.svg\"')", 2),
+                "tmpdeb/usr/share/applications/rustdesk.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk.desktop\"')", 2),
+                "tmpdeb/usr/share/applications/rustdesk-link.desktop')": ("\"tmpdeb/usr/share/applications/rustdesk-link.desktop\"')", 2),
+                'tmpdeb/usr/share/rustdesk/files/polkit && chmod a+x tmpdeb/usr/share/rustdesk/files/polkit': ('\\"tmpdeb/usr/share/rustdesk/files/polkit\\" && chmod a+x \\"tmpdeb/usr/share/rustdesk/files/polkit\\"', 2),
+            }
+            for old, (new, expected_count) in replacements.items():
+                if source.count(old) != expected_count:
+                    raise SystemExit("Cannot locate expected Linux package command: " + old)
+                source = source.replace(old, new, expected_count)
+            path.write_text(source, encoding="utf-8")
+            PY
+
             if [ "${{ env.appname }}" != "rustdesk" ]; then
-                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service|g" build.py
+                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1\"tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service\"|g" build.py
               sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
                 sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
                 # The rename above is greedy in \1, so it rewrites only the LAST
@@ -1282,7 +1335,6 @@ jobs:
                 #    rewritten by nothing here. Staging it under /usr/lib/<appname>/
                 #    packages and installs cleanly, then never loads on the user's machine.
                 sed -ie "s|tmpdeb/usr/lib/${{ env.appname }}|tmpdeb/usr/lib/rustdesk|g" build.py
-                sed -ie "s|Package: rustdesk|Package: ${{ env.appname }}|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+tmpdeb/.*~\2~p" build.py | sort | uniq)
                 FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
