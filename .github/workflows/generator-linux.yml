@@ -517,8 +517,17 @@ jobs:
             fi
             echo $JOBS
 
+            # Filesystem/service-safe form of the app name. Spaces and other shell- or
+            # rpm-hostile characters would split paths in build.py/spec edits (e.g. the
+            # injected "mv" ending up with several sources and a non-directory target).
+            # Unchanged for names that are already safe. The display name stays in
+            # ${{ env.appname }} and is only used for user-visible strings.
+            APP_FS=$(printf '%s' "${{ env.appname }}" | sed -E 's/[^A-Za-z0-9._+-]+/-/g; s/^[-.]+//; s/[-.]+$//')
+            [ -n "$APP_FS" ] || APP_FS=rustdesk
+            echo "Filesystem-safe app name: $APP_FS"
+
             # Make the right unit stop when the services is stopped by tray
-            sed -ie "s|\(systemctl\s\+\S\+\s\){app_name}|\1${{ env.appname }}|g" src/platform/linux.rs
+            sed -ie "s|\(systemctl\s\+\S\+\s\){app_name}|\1${APP_FS}|g" src/platform/linux.rs
             sed -ie 's|\({home}/{p}/{app_name0}2\?.toml\)|\\"\1\\"|g' src/platform/linux.rs
             sed -ie 's|\(/root/{p}/\)|\\"\1\\"|g' src/platform/linux.rs
 
@@ -583,10 +592,10 @@ jobs:
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             
             # Ensure packaging staging directories exist (build.py expects tmpdeb/ in repo root)
-            mkdir -p "tmpdeb/usr/share/${{ env.appname }}"
-            cp ./custom_.txt "./tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
-            mkdir -p "flutter/tmpdeb/usr/share/${{ env.appname }}"
-            cp ./custom_.txt "./flutter/tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
+            mkdir -p "tmpdeb/usr/share/${APP_FS}"
+            cp ./custom_.txt "./tmpdeb/usr/share/${APP_FS}/custom_.txt"
+            mkdir -p "flutter/tmpdeb/usr/share/${APP_FS}"
+            cp ./custom_.txt "./flutter/tmpdeb/usr/share/${APP_FS}/custom_.txt"
             DEB_PACKAGE_NAME=$(python3 - "$RDGEN_PACKAGE_FILENAME" <<'PY'
             import re
             import sys
@@ -651,9 +660,9 @@ jobs:
             # Only run the whitelabeling steps if the custom app name is actually different
             if [ "${{ env.appname }}" != "rustdesk" ]; then
                 # Change files names in the output .deb
-                sed -i -e "s|cp ../res/rustdesk\.service tmpdeb/usr/share/rustdesk/files/systemd/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}/files/systemd/\" \&\& cp ../res/rustdesk.service \"tmpdeb/usr/share/${{ env.appname }}/files/systemd/${{ env.appname }}.service\"|g" build.py
-                sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
-                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
+                sed -i -e "s|cp ../res/rustdesk\.service tmpdeb/usr/share/rustdesk/files/systemd/|mkdir -p \"tmpdeb/usr/share/${APP_FS}/files/systemd/\" \&\& cp ../res/rustdesk.service \"tmpdeb/usr/share/${APP_FS}/files/systemd/${APP_FS}.service\"|g" build.py
+                sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${APP_FS}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${APP_FS}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${APP_FS}/\"|" build.py
+                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${APP_FS}|g" build.py
                 # The rename above is greedy in \1, so it rewrites only the LAST
                 # "rustdesk" of each path and leaves build.py's globs pointing where the
                 # staging tree never exists. Three corrections, all confined to the drm
@@ -662,23 +671,23 @@ jobs:
                 #
                 # 1. Directory component: the cp -r rename above stages into
                 #    tmpdeb/usr/share/<appname>/, but the globs kept usr/share/rustdesk/.
-                sed -ie "s|tmpdeb/usr/share/rustdesk/|tmpdeb/usr/share/${{ env.appname }}/|g" build.py
+                sed -ie "s|tmpdeb/usr/share/rustdesk/|tmpdeb/usr/share/${APP_FS}/|g" build.py
                 # 2. Library filename: build.py renames only the executable and copies the
                 #    bundle verbatim, so the cdylib stays librustdesk.so. The greedy sed
                 #    renamed it to lib<appname>.so, and that is the file carrying the drm
                 #    marker -- the thin Flutter launcher does not.
-                sed -ie "s|lib/lib${{ env.appname }}\.so|lib/librustdesk.so|g" build.py
+                sed -ie "s|lib/lib${APP_FS}\.so|lib/librustdesk.so|g" build.py
                 # 3. libdrmtap must NOT be renamed: drmtap_dl.rs dlopens the absolute path
                 #    /usr/lib/rustdesk/libdrmtap.so.0, compiled into the binary and
                 #    rewritten by nothing here. Staging it under /usr/lib/<appname>/
                 #    packages and installs cleanly, then never loads on the user's machine.
-                sed -ie "s|tmpdeb/usr/lib/${{ env.appname }}|tmpdeb/usr/lib/rustdesk|g" build.py
+                sed -ie "s|tmpdeb/usr/lib/${APP_FS}|tmpdeb/usr/lib/rustdesk|g" build.py
                 sed -ie "s|Package: rustdesk|Package: ${DEB_PACKAGE_NAME}|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+\"\?tmpdeb/.*~\2~p" build.py | sort | uniq)
                 FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
-                  sed -ie "s|rustdesk|${{ env.appname }}|g" $FILE
+                  sed -ie "s|rustdesk|${APP_FS}|g" $FILE
                 done
                 # Upstream build.py generates res/DEBIAN/control at build time (its
                 # "Package: rustdesk" is rewritten by the build.py sed above), so the
@@ -689,14 +698,14 @@ jobs:
                 for file in "./res/rpm-flutter.spec" "./res/rpm-flutter-suse.spec"; do
                   sed -ie "s|^\(URL:\s*\).*|\1${{ env.downloadLink }}|g" "$file"
                   sed -ie "s|^\(Vendor:\s*\).*|\1${{ env.compname }}|g" "$file"
-                  sed -ie '/\${\?HBB}\?/!{/\/usr\|\/etc\|systemctl/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/!{/\/usr\|\/etc\|systemctl/s|rustdesk|'"${APP_FS}"'|g}' "$file"
                   sed -ie "s|^Name:[[:space:]]*rustdesk$|Name: ${DEB_PACKAGE_NAME}|" "$file"
-                  sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1${{ env.appname }}|g}' "$file"
-                  sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1'"${APP_FS}"'|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|'"${APP_FS}"'|g}' "$file"
                   for extension in ".desktop" "-link.desktop" ".service"; do
-                    sed -ie "/^%files$/i\mv %{buildroot}/usr/share/${{ env.appname }}/files/rustdesk$extension %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file"
-                    sed -ie "/^%files$/i\sed -ie 's|RustDesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file"
-                    sed -ie "/^%files$/i\sed -ie 's|rustdesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/${{ env.appname }}$extension" "$file"
+                    sed -ie "/^%files$/i\mv \"%{buildroot}/usr/share/${APP_FS}/files/rustdesk$extension\" \"%{buildroot}/usr/share/${APP_FS}/files/${APP_FS}$extension\"" "$file"
+                    sed -ie "/^%files$/i\sed -ie 's|RustDesk|${{ env.appname }}|g' \"%{buildroot}/usr/share/${APP_FS}/files/${APP_FS}$extension\"" "$file"
+                    sed -ie "/^%files$/i\sed -ie 's|rustdesk|${APP_FS}|g' \"%{buildroot}/usr/share/${APP_FS}/files/${APP_FS}$extension\"" "$file"
                   done
                   sed -ie '/^%files$/i\\n' "$file"
                 done
@@ -1306,7 +1315,12 @@ jobs:
               esac
             done
 
-            sed -ie "s|\(systemctl\s\+\S\+\s\){app_name}|\1${{ env.appname }}|g" src/platform/linux.rs
+            # Filesystem/service-safe form of the app name (see the main build job).
+            APP_FS=$(printf '%s' "${{ env.appname }}" | sed -E 's/[^A-Za-z0-9._+-]+/-/g; s/^[-.]+//; s/[-.]+$//')
+            [ -n "$APP_FS" ] || APP_FS=rustdesk
+            echo "Filesystem-safe app name: $APP_FS"
+
+            sed -ie "s|\(systemctl\s\+\S\+\s\){app_name}|\1${APP_FS}|g" src/platform/linux.rs
             sed -ie 's|\({home}/{p}/{app_name0}2\?.toml\)|\\"\1\\"|g' src/platform/linux.rs
             sed -ie 's|\(/root/{p}/\)|\\"\1\\"|g' src/platform/linux.rs
 
@@ -1334,8 +1348,8 @@ jobs:
             chmod 777 output -R
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=amd64
-            mkdir -p "flutter/tmpdeb/usr/share/${{ env.appname }}"
-            cp ./custom_.txt "./flutter/tmpdeb/usr/share/${{ env.appname }}/custom_.txt"
+            mkdir -p "flutter/tmpdeb/usr/share/${APP_FS}"
+            cp ./custom_.txt "./flutter/tmpdeb/usr/share/${APP_FS}/custom_.txt"
             if [[ "${{ env.logolink_url }}" != "false" ]]; then
               curl --fail --silent --show-error --proto '=https' --user "$RDGEN_USER:$RDGEN_PASSWORD" --get --data-urlencode "filename=$logolink_file" --data-urlencode "uuid=$logolink_uuid" --output ./flutter/assets/logo.png "${RDGEN_URL%/}/get_png"
             fi
@@ -1373,9 +1387,9 @@ jobs:
             PY
 
             if [ "${{ env.appname }}" != "rustdesk" ]; then
-                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1\"tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service\"|g" build.py
-              sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${{ env.appname }}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${{ env.appname }}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${{ env.appname }}/\"|" build.py
-                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
+                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|mkdir -p \"tmpdeb/usr/share/${APP_FS}/files/systemd/\" \&\& \1\"tmpdeb/usr/share/rustdesk/files/systemd/${APP_FS}.service\"|g" build.py
+              sed -i -e "s|cp -r {flutter_build_dir}/\* tmpdeb/usr/share/rustdesk/|mkdir -p \"tmpdeb/usr/share/${APP_FS}\" \&\& mv \"{flutter_build_dir}/rustdesk\" \"{flutter_build_dir}/${APP_FS}\" \&\& cp -r \"{flutter_build_dir}/\"* \"tmpdeb/usr/share/${APP_FS}/\"|" build.py
+                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${APP_FS}|g" build.py
                 # The rename above is greedy in \1, so it rewrites only the LAST
                 # "rustdesk" of each path and leaves build.py's globs pointing where the
                 # staging tree never exists. Three corrections, all confined to the drm
@@ -1384,22 +1398,22 @@ jobs:
                 #
                 # 1. Directory component: the cp -r rename above stages into
                 #    tmpdeb/usr/share/<appname>/, but the globs kept usr/share/rustdesk/.
-                sed -ie "s|tmpdeb/usr/share/rustdesk/|tmpdeb/usr/share/${{ env.appname }}/|g" build.py
+                sed -ie "s|tmpdeb/usr/share/rustdesk/|tmpdeb/usr/share/${APP_FS}/|g" build.py
                 # 2. Library filename: build.py renames only the executable and copies the
                 #    bundle verbatim, so the cdylib stays librustdesk.so. The greedy sed
                 #    renamed it to lib<appname>.so, and that is the file carrying the drm
                 #    marker -- the thin Flutter launcher does not.
-                sed -ie "s|lib/lib${{ env.appname }}\.so|lib/librustdesk.so|g" build.py
+                sed -ie "s|lib/lib${APP_FS}\.so|lib/librustdesk.so|g" build.py
                 # 3. libdrmtap must NOT be renamed: drmtap_dl.rs dlopens the absolute path
                 #    /usr/lib/rustdesk/libdrmtap.so.0, compiled into the binary and
                 #    rewritten by nothing here. Staging it under /usr/lib/<appname>/
                 #    packages and installs cleanly, then never loads on the user's machine.
-                sed -ie "s|tmpdeb/usr/lib/${{ env.appname }}|tmpdeb/usr/lib/rustdesk|g" build.py
+                sed -ie "s|tmpdeb/usr/lib/${APP_FS}|tmpdeb/usr/lib/rustdesk|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
-                FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+tmpdeb/.*~\2~p" build.py | sort | uniq)
+                FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+\"\?tmpdeb/.*~\2~p" build.py | sort | uniq)
                 FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
-                  sed -ie "s|rustdesk|${{ env.appname }}|g" $FILE
+                  sed -ie "s|rustdesk|${APP_FS}|g" $FILE
                 done
             fi
 
