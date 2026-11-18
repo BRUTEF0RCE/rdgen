@@ -48,6 +48,9 @@ env:
 jobs:
   setup:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
+    secrets:
+      RDGEN_BASIC_USER: ${{ secrets.RDGEN_BASIC_USER }}
+      RDGEN_BASIC_PASSWORD: ${{ secrets.RDGEN_BASIC_PASSWORD }}
     with:
       zip_url_json: ${{ inputs.zip_url }}
 
